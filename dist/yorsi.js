@@ -1,5 +1,5 @@
 // Yorsi — Yoshi-inspired platformer, 1-2 players, 10 levels, 5 themes
-// Controls: P1 Arrows+Space+Shift  |  P2 WASD+F+E
+// Controls: P1 Pijlen+↑spring+↓tong  |  P2 WASD+Wspring+Stong
 (function() {
   var W = 960, H = 540;
   var GRAVITY = 850, JUMP_V = -370, FLUTTER_V = -80, MAX_FLUTTER = 0.45;
@@ -415,10 +415,10 @@
     this.eggs = [];
 
     if (this.players.length === 0) {
-      this.players.push(new Player(1, 60, 60, '#4bc84b', '#d04040', 'ArrowLeft','ArrowRight','Space','Shift'));
+      this.players.push(new Player(1, 60, 60, '#4bc84b', '#d04040', 'ArrowLeft','ArrowRight','ArrowUp','ArrowDown'));
     }
     if (this.numPlayers >= 2 && this.players.length < 2) {
-      this.players.push(new Player(2, 140, 60, '#f080c0', '#8040a0', 'KeyA','KeyD','KeyF','KeyE'));
+      this.players.push(new Player(2, 140, 60, '#f080c0', '#8040a0', 'KeyA','KeyD','KeyW','KeyS'));
     }
     for (var i = 0; i < this.players.length; i++) {
       var p = this.players[i];
@@ -633,9 +633,9 @@
 
     ctx.font = '14px monospace';
     ctx.fillStyle = '#aaa';
-    ctx.fillText('P1: Arrows + Space(jump) + Shift(tongue/egg)', W / 2, 340);
-    ctx.fillText('P2: WASD + F(jump) + E(tongue/egg)', W / 2, 362);
-    ctx.fillText('Eat enemies with your tongue! Shoot eggs! 10 levels!', W / 2, 400);
+    ctx.fillText('P1: Pijlen + \u2191(spring) + \u2193(tong)', W / 2, 340);
+    ctx.fillText('P2: WASD + W(spring) + S(tong)', W / 2, 362);
+    ctx.fillText('Eet vijanden met je tong! Schiet eieren! 10 levels!', W / 2, 400);
     ctx.restore();
   };
 

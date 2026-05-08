@@ -1,5 +1,5 @@
 // Yorsi — Yoshi-inspired platformer, 1–2 players, 10 levels, 5 themes
-// Controls: P1 Arrows+Space+Shift  |  P2 WASD+F+E
+// Controls: P1 Pijlen+↑spring+↓tong  |  P2 WASD+Wspring+Stong
 
 type Theme = 'jungle' | 'desert' | 'snow' | 'volcano' | 'sky';
 type Screen = 'title' | 'playing' | 'levelClear' | 'gameOver' | 'victory';
@@ -437,10 +437,10 @@ class YorsiGame {
     this.eggs = [];
 
     if (this.players.length === 0) {
-      this.players.push(new Player(1, 60, 60, '#4bc84b', '#d04040', 'ArrowLeft','ArrowRight','Space','Shift'));
+      this.players.push(new Player(1, 60, 60, '#4bc84b', '#d04040', 'ArrowLeft','ArrowRight','ArrowUp','ArrowDown'));
     }
     if (this.numPlayers >= 2 && this.players.length < 2) {
-      this.players.push(new Player(2, 140, 60, '#f080c0', '#8040a0', 'KeyA','KeyD','KeyF','KeyE'));
+      this.players.push(new Player(2, 140, 60, '#f080c0', '#8040a0', 'KeyA','KeyD','KeyW','KeyS'));
     }
     for (const p of this.players) {
       if (p.lives > 0) { p.pos.x = 60 + (p.id - 1) * 80; p.pos.y = 60; p.vel.x = 0; p.vel.y = 0; p.grounded = false; }
@@ -692,8 +692,8 @@ class YorsiGame {
     // Controls
     ctx.font = '14px monospace';
     ctx.fillStyle = '#aaa';
-    ctx.fillText('P1: Arrows + Space(spring) + Shift(tongue/ei)', W / 2, 340);
-    ctx.fillText('P2: WASD + F(spring) + E(tongue/ei)', W / 2, 362);
+    ctx.fillText('P1: Pijlen + ↑(spring) + ↓(tong)', W / 2, 340);
+    ctx.fillText('P2: WASD + W(spring) + S(tong)', W / 2, 362);
     ctx.fillText('Eet vijanden met je tong! Schiet eieren! 10 levels!', W / 2, 400);
 
     ctx.restore();
