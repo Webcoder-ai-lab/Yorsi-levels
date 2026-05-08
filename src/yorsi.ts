@@ -12,7 +12,7 @@ const GRAVITY = 850, JUMP_V = -370, FLUTTER_V = -80, MAX_FLUTTER = 0.45;
 const MOVE_SPD = 170, TONGUE_RNG = 55, TONGUE_TIME = 0.25;
 const EGG_SPD = 320, ENEMY_SPD = 45, PLAYER_H = 28, PLAYER_R = 13;
 type PowerUpType = 'highJump' | 'speed' | 'extraCoins' | 'star';
-const POWERUP_FALL_SPD = 70, POWERUP_DURATION = 8, POWERUP_SPAWN_INTERVAL = 4.5, POWERUP_LIFETIME = 10, POWERUP_W = 22;
+const POWERUP_FALL_SPD = 70, POWERUP_DURATION = 8, POWERUP_SPAWN_INTERVAL = 4.5, POWERUP_LIFETIME = 10, POWERUP_W = 22, POWERUP_H = 22;
 
 const THEME: Record<Theme, { sky: string[]; ground: string; plat: string; accent: string; ec: string }> = {
   jungle: { sky: ['#0d2810','#1a4a20','#2d6a3a'], ground:'#3a2a1a', plat:'#5a6a2a', accent:'#6aba4a', ec:'#4a9a3a' },
