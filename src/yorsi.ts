@@ -11,6 +11,8 @@ const W = 960, H = 540;
 const GRAVITY = 850, JUMP_V = -370, FLUTTER_V = -80, MAX_FLUTTER = 0.45;
 const MOVE_SPD = 170, TONGUE_RNG = 55, TONGUE_TIME = 0.25;
 const EGG_SPD = 320, ENEMY_SPD = 45, PLAYER_H = 28, PLAYER_R = 13;
+type PowerUpType = 'highJump' | 'speed' | 'extraCoins' | 'star';
+const POWERUP_FALL_SPD = 70, POWERUP_DURATION = 8, POWERUP_SPAWN_INTERVAL = 4.5, POWERUP_LIFETIME = 10, POWERUP_W = 22;
 
 const THEME: Record<Theme, { sky: string[]; ground: string; plat: string; accent: string; ec: string }> = {
   jungle: { sky: ['#0d2810','#1a4a20','#2d6a3a'], ground:'#3a2a1a', plat:'#5a6a2a', accent:'#6aba4a', ec:'#4a9a3a' },
@@ -80,6 +82,28 @@ class Enemy {
   }
 }
 
+// ─── PowerUp ─────────────────────────────────────────────────────────────────
+class PowerUp {
+  pos: Vec2; type: PowerUpType; alive = true; grounded = false;
+  lifetime = POWERUP_LIFETIME; phase = 0;
+  constructor(x: number, y: number, type: PowerUpType) {
+    this.pos = { x, y }; this.type = type;
+  }
+  update(dt: number, plats: Platform[]) {
+    this.phase += dt;
+    if (this.grounded) { this.lifetime -= dt; if (this.lifetime <= 0) this.alive = false; return; }
+    this.pos.y += POWERUP_FALL_SPD * dt;
+    for (const p of plats) {
+      const r = p.r;
+      if (this.pos.x + POWERUP_W / 2 > r.x && this.pos.x - POWERUP_W / 2 < r.x + r.w &&
+          this.pos.y + POWERUP_W / 2 > r.y && this.pos.y - POWERUP_W / 2 < r.y + r.h) {
+        this.pos.y = r.y - POWERUP_W / 2; this.grounded = true; break;
+      }
+    }
+    if (this.pos.y > H + 100) this.alive = false;
+  }
+}
+
 // ─── Egg ─────────────────────────────────────────────────────────────────────
 class Egg {
   pos: Vec2; vel: Vec2; alive = true; bnc = 0;
@@ -112,6 +136,7 @@ class Player {
   hasEgg = false; tongue = false; tongueT = 0; tongueTip?: Vec2;
   lives = 3; score = 0; invinc = 0; color: string; saddle: string;
   moveL: string; moveR: string; jumpKey: string; actKey: string;
+  powerUp: { type: PowerUpType; timer: number } | null = null;
 
   constructor(id: number, x: number, y: number, color: string, saddle: string,
               moveL: string, moveR: string, jumpKey: string, actKey: string) {
@@ -124,13 +149,23 @@ class Player {
     if (this.lives <= 0) return;
     if (this.invinc > 0) this.invinc -= dt;
 
+    // Power-up timer
+    if (this.powerUp) {
+      this.powerUp.timer -= dt;
+      if (this.powerUp.timer <= 0) this.powerUp = null;
+    }
+
     let mx = 0;
     if (inp.down(this.moveL)) mx -= 1;
     if (inp.down(this.moveR)) mx += 1;
     if (mx !== 0) this.facing = mx;
-    this.vel.x = mx * MOVE_SPD;
+    this.vel.x = mx * (this.powerUp?.type === 'speed' ? MOVE_SPD * 1.6 : MOVE_SPD);
 
-    if (inp.just(this.jumpKey) && this.grounded) { this.vel.y = JUMP_V; this.grounded = false; this.flutter = MAX_FLUTTER; }
+    if (inp.just(this.jumpKey) && this.grounded) {
+      this.vel.y = this.powerUp?.type === 'highJump' ? JUMP_V * 1.6 : JUMP_V;
+      this.grounded = false;
+      this.flutter = this.powerUp?.type === 'highJump' ? MAX_FLUTTER * 1.5 : MAX_FLUTTER;
+    }
 
     if (inp.down(this.jumpKey) && !this.grounded && this.flutter > 0 && this.vel.y > FLUTTER_V) {
       this.vel.y = FLUTTER_V; this.flutter -= dt;
@@ -189,8 +224,9 @@ class Player {
     for (const e of enemies) {
       if (!e.alive || this.invinc > 0) continue;
       if (Math.hypot(this.pos.x - e.pos.x, this.pos.y - e.pos.y) < PLAYER_R + e.r) {
-        if (this.vel.y > 0 && this.pos.y < e.pos.y - e.r) {
-          e.alive = false; e.respawn = 3; this.score += 200; this.vel.y = JUMP_V * 0.5;
+        if (this.powerUp?.type === 'star' || (this.vel.y > 0 && this.pos.y < e.pos.y - e.r)) {
+          e.alive = false; e.respawn = 3; this.score += 200;
+          if (this.vel.y > 0) this.vel.y = JUMP_V * 0.5;
         } else { this.die(); }
       }
     }
@@ -215,6 +251,13 @@ class Player {
     const sx = this.pos.x - cam.x, sy = this.pos.y - cam.y;
 
     ctx.save(); ctx.translate(sx, sy);
+
+    // Disco effect
+    const origColor = this.color;
+    if (this.powerUp) {
+      const hue = (this.powerUp.timer * 120) % 360;
+      this.color = `hsl(${hue}, 100%, 60%)`;
+    }
 
     // Tail
     ctx.fillStyle = this.color;
@@ -267,6 +310,7 @@ class Player {
       ctx.beginPath(); ctx.ellipse(0, -20, 5, 7, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     }
 
+    if (this.powerUp) this.color = origColor;
     ctx.restore();
   }
 }
@@ -412,9 +456,10 @@ class YorsiGame {
 
   players: Player[] = [];
   plats: Platform[] = []; coins: Coin[] = []; enemies: Enemy[] = []; eggs: Egg[] = [];
+  powerUps: PowerUp[] = [];
   cam = new Camera();
   level = 1; lw = 0; flagX = 0; baseY = 0; theme: Theme = 'jungle';
-  clearTimer = 0;
+  clearTimer = 0; powerUpSpawnTimer = 0;
 
   // Title bob
   titleTime = 0;
@@ -425,6 +470,7 @@ class YorsiGame {
     if (!ctx) throw new Error('No 2D context');
     this.ctx = ctx;
     canvas.focus();
+    this.powerUpSpawnTimer = POWERUP_SPAWN_INTERVAL;
   }
 
   startLevel() {
@@ -435,6 +481,15 @@ class YorsiGame {
     this.enemies = g.enemies;
     this.coins = g.coins;
     this.eggs = [];
+    this.powerUps = [];
+    this.powerUpSpawnTimer = POWERUP_SPAWN_INTERVAL;
+
+    // Revive dead players in 2-player mode
+    if (this.numPlayers >= 2) {
+      for (const p of this.players) {
+        if (p.lives <= 0) p.lives = 1;
+      }
+    }
 
     if (this.players.length === 0) {
       this.players.push(new Player(1, 60, 60, '#4bc84b', '#d04040', 'ArrowLeft','ArrowRight','ArrowUp','ArrowDown'));
@@ -487,6 +542,43 @@ class YorsiGame {
     for (const p of this.plats) p.update(dt);
     for (const c of this.coins) c.update(dt);
     for (const e of this.enemies) e.update(dt);
+
+    // Power-ups
+    this.powerUpSpawnTimer -= dt;
+    if (this.powerUpSpawnTimer <= 0) {
+      this.powerUpSpawnTimer = POWERUP_SPAWN_INTERVAL + Math.random() * 2;
+      const r = Math.random();
+      let type: PowerUpType;
+      if (r < 0.4) type = 'highJump';
+      else if (r < 0.7) type = 'speed';
+      else if (r < 0.9) type = 'extraCoins';
+      else type = 'star';
+      this.powerUps.push(new PowerUp(80 + Math.random() * (this.lw - 160), -20, type));
+    }
+    for (let i = this.powerUps.length - 1; i >= 0; i--) {
+      const pu = this.powerUps[i];
+      pu.update(dt, this.plats);
+      if (!pu.alive) { this.powerUps.splice(i, 1); continue; }
+      for (const p of this.players) {
+        if (p.lives <= 0) continue;
+        if (Math.hypot(p.pos.x - pu.pos.x, p.pos.y - pu.pos.y) < PLAYER_R + POWERUP_W / 2) {
+          pu.alive = false;
+          if (pu.type === 'extraCoins') {
+            for (let j = 0; j < 6; j++) {
+              const cx = pu.pos.x + (Math.random() - 0.5) * 200;
+              const cy = pu.pos.y - 30 - Math.random() * 80;
+              this.coins.push(new Coin(cx, cy));
+            }
+            p.score += 100;
+          } else {
+            p.powerUp = { type: pu.type, timer: POWERUP_DURATION };
+          }
+          this.powerUps.splice(i, 1);
+          break;
+        }
+      }
+    }
+
     for (let i = this.eggs.length - 1; i >= 0; i--) {
       this.eggs[i].update(dt, this.plats, this.enemies, this.players[0]);
       if (!this.eggs[i].alive) this.eggs.splice(i, 1);
@@ -601,6 +693,66 @@ class YorsiGame {
       ctx.beginPath(); ctx.ellipse(sx, sy, 4, 6, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     }
 
+    // Power-ups
+    for (const pu of this.powerUps) {
+      if (!pu.alive) continue;
+      const sx = pu.pos.x - this.cam.x, sy = pu.pos.y - this.cam.y;
+      const bob = Math.sin(pu.phase * 3) * 2;
+      ctx.save(); ctx.translate(sx, sy + bob);
+      const hw = POWERUP_W / 2;
+      // Background glow
+      ctx.fillStyle = 'rgba(255,255,255,0.2)';
+      ctx.beginPath(); ctx.arc(0, 0, hw + 4, 0, Math.PI * 2); ctx.fill();
+      // Box
+      ctx.fillStyle = '#222';
+      ctx.fillRect(-hw, -hw, POWERUP_W, POWERUP_H);
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(-hw, -hw, POWERUP_W, POWERUP_H);
+      // Icon
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      if (pu.type === 'highJump') {
+        // Up arrow with stripes
+        ctx.fillStyle = '#4cc';
+        ctx.beginPath();
+        ctx.moveTo(0, -7); ctx.lineTo(-5, -1); ctx.lineTo(-2, -1); ctx.lineTo(-2, 3);
+        ctx.lineTo(2, 3); ctx.lineTo(2, -1); ctx.lineTo(5, -1);
+        ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(-6, 6); ctx.lineTo(6, 6); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(-5, 9); ctx.lineTo(5, 9); ctx.stroke();
+      } else if (pu.type === 'speed') {
+        // Lightning bolt
+        ctx.fillStyle = '#fe0';
+        ctx.beginPath();
+        ctx.moveTo(2, -9); ctx.lineTo(-3, -1); ctx.lineTo(1, -1); ctx.lineTo(-2, 9);
+        ctx.lineTo(5, -1); ctx.lineTo(1, -1);
+        ctx.closePath(); ctx.fill();
+      } else if (pu.type === 'extraCoins') {
+        // Diamond
+        ctx.fillStyle = '#4cf';
+        ctx.beginPath();
+        ctx.moveTo(0, -8); ctx.lineTo(8, 0); ctx.lineTo(0, 8); ctx.lineTo(-8, 0);
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#fff8';
+        ctx.beginPath(); ctx.arc(-2, -2, 2, 0, Math.PI * 2); ctx.fill();
+      } else if (pu.type === 'star') {
+        // Golden star
+        ctx.fillStyle = '#fd0';
+        ctx.beginPath();
+        for (let i = 0; i < 5; i++) {
+          const a = (i * 4 * Math.PI) / 5 - Math.PI / 2;
+          const px = Math.cos(a) * 8;
+          const py = Math.sin(a) * 8;
+          i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+        }
+        ctx.closePath(); ctx.fill();
+      }
+      ctx.restore();
+    }
+
     // Players
     for (const p of this.players) p.draw(ctx, this.cam);
 
@@ -696,6 +848,10 @@ class YorsiGame {
     ctx.fillText('P2: WASD + W(spring) + S(tong)', W / 2, 362);
     ctx.fillText('Eet vijanden met je tong! Schiet eieren! 10 levels!', W / 2, 400);
 
+    // Power-up info
+    ctx.font = '13px monospace';
+    ctx.fillStyle = '#888';
+    ctx.fillText('Power-ups vallen uit de lucht: ↑spring ⚡snelheid ◆munten ★ster', W / 2, 430);
     ctx.restore();
   }
 

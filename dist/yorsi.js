@@ -5,6 +5,7 @@
   var GRAVITY = 850, JUMP_V = -370, FLUTTER_V = -80, MAX_FLUTTER = 0.45;
   var MOVE_SPD = 170, TONGUE_RNG = 55, TONGUE_TIME = 0.25;
   var EGG_SPD = 320, ENEMY_SPD = 45, PLAYER_R = 13;
+  var POWERUP_FALL_SPD = 70, POWERUP_DURATION = 8, POWERUP_SPAWN_INTERVAL = 4.5, POWERUP_LIFETIME = 10, POWERUP_W = 22;
 
   var THEME = {
     jungle: { sky: ['#0d2810','#1a4a20','#2d6a3a'], ground:'#3a2a1a', plat:'#5a6a2a', accent:'#6aba4a', ec:'#4a9a3a' },
@@ -82,6 +83,25 @@
     if (Math.abs(this.pos.x - this.startX) >= this.range) this.dir *= -1;
   };
 
+  // --- PowerUp --------------------------------------------------------------
+  function PowerUp(x, y, type) {
+    this.pos = { x: x, y: y }; this.type = type;
+    this.alive = true; this.grounded = false; this.lifetime = POWERUP_LIFETIME; this.phase = 0;
+  }
+  PowerUp.prototype.update = function(dt, plats) {
+    this.phase += dt;
+    if (this.grounded) { this.lifetime -= dt; if (this.lifetime <= 0) this.alive = false; return; }
+    this.pos.y += POWERUP_FALL_SPD * dt;
+    for (var i = 0; i < plats.length; i++) {
+      var r = plats[i].r;
+      if (this.pos.x + POWERUP_W / 2 > r.x && this.pos.x - POWERUP_W / 2 < r.x + r.w &&
+          this.pos.y + POWERUP_W / 2 > r.y && this.pos.y - POWERUP_W / 2 < r.y + r.h) {
+        this.pos.y = r.y - POWERUP_W / 2; this.grounded = true; break;
+      }
+    }
+    if (this.pos.y > H + 100) this.alive = false;
+  };
+
   // --- Egg ------------------------------------------------------------------
   function Egg(x, y, dir) {
     this.pos = { x: x, y: y }; this.vel = { x: dir * EGG_SPD, y: -220 };
@@ -116,6 +136,7 @@
     this.facing = 1; this.grounded = false; this.flutter = 0;
     this.hasEgg = false; this.tongue = false; this.tongueT = 0;
     this.lives = 3; this.score = 0; this.invinc = 0;
+    this.powerUp = null;
     this.color = color; this.saddle = saddle;
     this.moveL = moveL; this.moveR = moveR; this.jumpKey = jumpKey; this.actKey = actKey;
     this.id = id;
@@ -124,14 +145,22 @@
     if (this.lives <= 0) return;
     if (this.invinc > 0) this.invinc -= dt;
 
+    // Power-up timer
+    if (this.powerUp) {
+      this.powerUp.timer -= dt;
+      if (this.powerUp.timer <= 0) this.powerUp = null;
+    }
+
     var mx = 0;
     if (inp.down(this.moveL)) mx -= 1;
     if (inp.down(this.moveR)) mx += 1;
     if (mx !== 0) this.facing = mx;
-    this.vel.x = mx * MOVE_SPD;
+    this.vel.x = mx * (this.powerUp && this.powerUp.type === 'speed' ? MOVE_SPD * 1.6 : MOVE_SPD);
 
     if (inp.just(this.jumpKey) && this.grounded) {
-      this.vel.y = JUMP_V; this.grounded = false; this.flutter = MAX_FLUTTER;
+      this.vel.y = this.powerUp && this.powerUp.type === 'highJump' ? JUMP_V * 1.6 : JUMP_V;
+      this.grounded = false;
+      this.flutter = this.powerUp && this.powerUp.type === 'highJump' ? MAX_FLUTTER * 1.5 : MAX_FLUTTER;
     }
 
     if (inp.down(this.jumpKey) && !this.grounded && this.flutter > 0 && this.vel.y > FLUTTER_V) {
@@ -198,8 +227,9 @@
       var e2 = enemies[n];
       if (!e2.alive || this.invinc > 0) continue;
       if (Math.hypot(this.pos.x - e2.pos.x, this.pos.y - e2.pos.y) < PLAYER_R + e2.r) {
-        if (this.vel.y > 0 && this.pos.y < e2.pos.y - e2.r) {
-          e2.alive = false; e2.respawn = 3; this.score += 200; this.vel.y = JUMP_V * 0.5;
+        if ((this.powerUp && this.powerUp.type === 'star') || (this.vel.y > 0 && this.pos.y < e2.pos.y - e2.r)) {
+          e2.alive = false; e2.respawn = 3; this.score += 200;
+          if (this.vel.y > 0) this.vel.y = JUMP_V * 0.5;
         } else { this.die(); }
       }
     }
@@ -221,6 +251,13 @@
     var sx = this.pos.x - cam.x, sy = this.pos.y - cam.y;
 
     ctx.save(); ctx.translate(sx, sy);
+
+    // Disco effect
+    var origColor = this.color;
+    if (this.powerUp) {
+      var hue = (this.powerUp.timer * 120) % 360;
+      this.color = 'hsl(' + hue + ', 100%, 60%)';
+    }
 
     // Tail
     ctx.fillStyle = this.color;
@@ -270,6 +307,7 @@
       ctx.beginPath(); ctx.ellipse(0, -20, 5, 7, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     }
 
+    if (this.powerUp) this.color = origColor;
     ctx.restore();
   };
 
@@ -396,10 +434,10 @@
     this.screen = 'title';
     this.numPlayers = 1;
     this.players = [];
-    this.plats = []; this.coins = []; this.enemies = []; this.eggs = [];
+    this.plats = []; this.coins = []; this.enemies = []; this.eggs = []; this.powerUps = [];
     this.cam = new Camera();
     this.level = 1; this.lw = 0; this.flagX = 0; this.baseY = 0; this.theme = 'jungle';
-    this.clearTimer = 0;
+    this.clearTimer = 0; this.powerUpSpawnTimer = POWERUP_SPAWN_INTERVAL;
     this.titleTime = 0;
     this._last = 0; this._acc = 0;
     canvas.focus();
@@ -413,6 +451,15 @@
     this.enemies = g.enemies;
     this.coins = g.coins;
     this.eggs = [];
+    this.powerUps = [];
+    this.powerUpSpawnTimer = POWERUP_SPAWN_INTERVAL;
+
+    // Revive dead players in 2-player mode
+    if (this.numPlayers >= 2) {
+      for (var r = 0; r < this.players.length; r++) {
+        if (this.players[r].lives <= 0) this.players[r].lives = 1;
+      }
+    }
 
     if (this.players.length === 0) {
       this.players.push(new Player(1, 60, 60, '#4bc84b', '#d04040', 'ArrowLeft','ArrowRight','ArrowUp','ArrowDown'));
@@ -462,6 +509,44 @@
     for (var i = 0; i < this.plats.length; i++) this.plats[i].update(dt);
     for (var j = 0; j < this.coins.length; j++) this.coins[j].update(dt);
     for (var k = 0; k < this.enemies.length; k++) this.enemies[k].update(dt);
+
+    // Power-ups
+    this.powerUpSpawnTimer -= dt;
+    if (this.powerUpSpawnTimer <= 0) {
+      this.powerUpSpawnTimer = POWERUP_SPAWN_INTERVAL + Math.random() * 2;
+      var r2 = Math.random();
+      var type;
+      if (r2 < 0.4) type = 'highJump';
+      else if (r2 < 0.7) type = 'speed';
+      else if (r2 < 0.9) type = 'extraCoins';
+      else type = 'star';
+      this.powerUps.push(new PowerUp(80 + Math.random() * (this.lw - 160), -20, type));
+    }
+    for (var pi = this.powerUps.length - 1; pi >= 0; pi--) {
+      var pu = this.powerUps[pi];
+      pu.update(dt, this.plats);
+      if (!pu.alive) { this.powerUps.splice(pi, 1); continue; }
+      for (var pl = 0; pl < this.players.length; pl++) {
+        var pp = this.players[pl];
+        if (pp.lives <= 0) continue;
+        if (Math.hypot(pp.pos.x - pu.pos.x, pp.pos.y - pu.pos.y) < PLAYER_R + POWERUP_W / 2) {
+          pu.alive = false;
+          if (pu.type === 'extraCoins') {
+            for (var j2 = 0; j2 < 6; j2++) {
+              var cx = pu.pos.x + (Math.random() - 0.5) * 200;
+              var cy = pu.pos.y - 30 - Math.random() * 80;
+              this.coins.push(new Coin(cx, cy));
+            }
+            pp.score += 100;
+          } else {
+            pp.powerUp = { type: pu.type, timer: POWERUP_DURATION };
+          }
+          this.powerUps.splice(pi, 1);
+          break;
+        }
+      }
+    }
+
     for (var m = this.eggs.length - 1; m >= 0; m--) {
       this.eggs[m].update(dt, this.plats, this.enemies, this.players[0]);
       if (!this.eggs[m].alive) this.eggs.splice(m, 1);
@@ -555,6 +640,60 @@
       ctx.beginPath(); ctx.ellipse(sx5, sy5, 4, 6, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     }
 
+    // Power-ups
+    for (var pu = 0; pu < this.powerUps.length; pu++) {
+      var p = this.powerUps[pu];
+      if (!p.alive) continue;
+      var sx6 = p.pos.x - this.cam.x, sy6 = p.pos.y - this.cam.y;
+      var bob = Math.sin(p.phase * 3) * 2;
+      ctx.save(); ctx.translate(sx6, sy6 + bob);
+      var hw = POWERUP_W / 2;
+      ctx.fillStyle = 'rgba(255,255,255,0.2)';
+      ctx.beginPath(); ctx.arc(0, 0, hw + 4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#222';
+      ctx.fillRect(-hw, -hw, POWERUP_W, POWERUP_H);
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(-hw, -hw, POWERUP_W, POWERUP_H);
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      if (p.type === 'highJump') {
+        ctx.fillStyle = '#4cc';
+        ctx.beginPath();
+        ctx.moveTo(0, -7); ctx.lineTo(-5, -1); ctx.lineTo(-2, -1); ctx.lineTo(-2, 3);
+        ctx.lineTo(2, 3); ctx.lineTo(2, -1); ctx.lineTo(5, -1);
+        ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(-6, 6); ctx.lineTo(6, 6); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(-5, 9); ctx.lineTo(5, 9); ctx.stroke();
+      } else if (p.type === 'speed') {
+        ctx.fillStyle = '#fe0';
+        ctx.beginPath();
+        ctx.moveTo(2, -9); ctx.lineTo(-3, -1); ctx.lineTo(1, -1); ctx.lineTo(-2, 9);
+        ctx.lineTo(5, -1); ctx.lineTo(1, -1);
+        ctx.closePath(); ctx.fill();
+      } else if (p.type === 'extraCoins') {
+        ctx.fillStyle = '#4cf';
+        ctx.beginPath();
+        ctx.moveTo(0, -8); ctx.lineTo(8, 0); ctx.lineTo(0, 8); ctx.lineTo(-8, 0);
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#fff8';
+        ctx.beginPath(); ctx.arc(-2, -2, 2, 0, Math.PI * 2); ctx.fill();
+      } else if (p.type === 'star') {
+        ctx.fillStyle = '#fd0';
+        ctx.beginPath();
+        for (var si = 0; si < 5; si++) {
+          var a2 = (si * 4 * Math.PI) / 5 - Math.PI / 2;
+          var px2 = Math.cos(a2) * 8;
+          var py2 = Math.sin(a2) * 8;
+          si === 0 ? ctx.moveTo(px2, py2) : ctx.lineTo(px2, py2);
+        }
+        ctx.closePath(); ctx.fill();
+      }
+      ctx.restore();
+    }
+
     // Players
     for (var t = 0; t < this.players.length; t++) this.players[t].draw(ctx, this.cam);
 
@@ -636,6 +775,10 @@
     ctx.fillText('P1: Pijlen + \u2191(spring) + \u2193(tong)', W / 2, 340);
     ctx.fillText('P2: WASD + W(spring) + S(tong)', W / 2, 362);
     ctx.fillText('Eet vijanden met je tong! Schiet eieren! 10 levels!', W / 2, 400);
+
+    ctx.font = '13px monospace';
+    ctx.fillStyle = '#888';
+    ctx.fillText('Power-ups vallen uit de lucht: \u2191spring \u26a1snelheid \u25c6munten \u2605ster', W / 2, 430);
     ctx.restore();
   };
 
