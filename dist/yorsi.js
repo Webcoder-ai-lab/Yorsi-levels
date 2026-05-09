@@ -375,7 +375,7 @@
     var x = 0;
     while (x < lw) {
       var segW;
-      if (diff >= 1 && num >= 2 && srand() < 0.12 * diff) {
+      if (x > 0 && diff >= 1 && num >= 2 && srand() < 0.12 * diff) {
         x += 40 + srand() * 40 * diff;
         segW = 200 + srand() * 300;
       } else {

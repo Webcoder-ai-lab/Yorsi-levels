@@ -381,7 +381,7 @@ function genLevel(num: number) {
   let x = 0;
   while (x < lw) {
     let segW: number;
-    if (diff >= 1 && num >= 2 && srand() < 0.12 * diff) {
+    if (x > 0 && diff >= 1 && num >= 2 && srand() < 0.12 * diff) {
       // Gap
       const gapW = 40 + srand() * 40 * diff;
       x += gapW;
