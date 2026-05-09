@@ -770,7 +770,7 @@
 
     if (this.screen === 'levelClear') this.drawOverlay(ctx, 'Level Clear!', '#4f4');
     if (this.screen === 'gameOver') this.drawOverlay(ctx, 'Game Over', '#f44');
-    if (this.screen === 'victory') this.drawOverlay(ctx, 'You Win!', '#ff0');
+    if (this.screen === 'victory') this.drawVictory(ctx);
   };
 
   YorsiGame.prototype.drawOverlay = function(ctx, text, color) {
@@ -786,6 +786,28 @@
     ctx.fillStyle = '#fff';
     ctx.font = '18px monospace';
     if (this.screen !== 'levelClear') ctx.fillText('Press ENTER to restart', W / 2, H / 2 + 40);
+    ctx.restore();
+  };
+
+  YorsiGame.prototype.drawVictory = function(ctx) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ff0';
+    ctx.font = 'bold 48px monospace';
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 4;
+    ctx.strokeText('You Win!', W / 2, H / 2 - 40);
+    ctx.fillText('You Win!', W / 2, H / 2 - 40);
+    ctx.font = '20px monospace';
+    for (var vi = 0; vi < this.players.length; vi++) {
+      var vp = this.players[vi];
+      ctx.fillStyle = vp.color;
+      ctx.fillText('P' + (vi + 1) + ': ' + vp.score + ' punten', W / 2, H / 2 + 10 + vi * 28);
+    }
+    ctx.fillStyle = '#fff';
+    ctx.font = '18px monospace';
+    ctx.fillText('Press ENTER to restart', W / 2, H / 2 + 80);
     ctx.restore();
   };
 
