@@ -1,7 +1,7 @@
 // Yorsi — Yoshi-inspired platformer, 1-2 players, 10 levels, 5 themes
 // Controls: P1 Pijlen+↑spring+↓tong  |  P2 WASD+Wspring+Stong
 (function() {
-  var W = 960, H = 540, VERSION = 'v1.2';
+  var W = 960, H = 540, VERSION = 'v1.3';
   var GRAVITY = 850, JUMP_V = -370, FLUTTER_V = -80, MAX_FLUTTER = 0.45;
   var MOVE_SPD = 170, TONGUE_RNG = 55, TONGUE_TIME = 0.25;
   var EGG_SPD = 320, ENEMY_SPD = 45, PLAYER_R = 13;
@@ -35,6 +35,220 @@
   Input.prototype.down = function(c) { return !!this.held[c]; };
   Input.prototype.just = function(c) { return !!this.pressed[c]; };
   Input.prototype.endFrame = function() { this.pressed = {}; };
+
+  // --- Mobile Input (touch controls) -----------------------------------------
+  function MobileInput(canvas, inp, game) {
+    this.canvas = canvas;
+    this.inp = inp;
+    this.game = game;
+    this.active = false;
+    this.touchPos = {};
+    this.touchStart = {};
+    this.joystickTouch = {};
+    this.actionTouch = {};
+    this.jState = {};
+    this.actionJust = {};
+    this.setup();
+  }
+  MobileInput.prototype.canvasPos = function(t) {
+    var rect = this.canvas.getBoundingClientRect();
+    return {
+      x: (t.clientX - rect.left) * (W / rect.width),
+      y: (t.clientY - rect.top) * (H / rect.height),
+    };
+  };
+  MobileInput.prototype.setup = function() {
+    var c = this.canvas;
+    var self = this;
+    c.addEventListener('touchstart', function(e) {
+      if (!self.active) return;
+      e.preventDefault();
+      for (var i = 0; i < e.changedTouches.length; i++) {
+        var t = e.changedTouches[i];
+        var pos = self.canvasPos(t);
+        self.touchPos[t.identifier] = pos;
+        self.touchStart[t.identifier] = { x: pos.x, y: pos.y };
+        self.assignTouch(t.identifier, pos);
+      }
+    });
+    c.addEventListener('touchmove', function(e) {
+      if (!self.active) return;
+      e.preventDefault();
+      for (var i = 0; i < e.changedTouches.length; i++) {
+        var t = e.changedTouches[i];
+        self.touchPos[t.identifier] = self.canvasPos(t);
+      }
+    });
+    c.addEventListener('touchend', function(e) {
+      if (!self.active) return;
+      e.preventDefault();
+      for (var i = 0; i < e.changedTouches.length; i++) {
+        var t = e.changedTouches[i];
+        self.removeTouch(t.identifier);
+      }
+    });
+    c.addEventListener('touchcancel', function(e) {
+      if (!self.active) return;
+      e.preventDefault();
+      for (var i = 0; i < e.changedTouches.length; i++) {
+        self.removeTouch(e.changedTouches[i].identifier);
+      }
+    });
+  };
+  MobileInput.prototype.assignTouch = function(id, pos) {
+    var np = this.game.numPlayers;
+    if (np >= 2) {
+      if (pos.x < W / 2) {
+        if (pos.x < W * 0.38 && !this.joystickTouch['j2']) {
+          this.joystickTouch['j2'] = id;
+          if (!this.jState['j2']) this.jState['j2'] = { dx: 0, dy: 0, wasUp: false };
+        } else if (pos.x >= W * 0.38 && !this.actionTouch['a2']) {
+          this.actionTouch['a2'] = id;
+          this.actionJust['a2'] = true;
+        }
+      } else {
+        if (pos.x < W * 0.88 && !this.joystickTouch['j1']) {
+          this.joystickTouch['j1'] = id;
+          if (!this.jState['j1']) this.jState['j1'] = { dx: 0, dy: 0, wasUp: false };
+        } else if (pos.x >= W * 0.88 && !this.actionTouch['a1']) {
+          this.actionTouch['a1'] = id;
+          this.actionJust['a1'] = true;
+        }
+      }
+    } else {
+      if (pos.x < W / 2 && !this.joystickTouch['j1']) {
+        this.joystickTouch['j1'] = id;
+        if (!this.jState['j1']) this.jState['j1'] = { dx: 0, dy: 0, wasUp: false };
+      } else if (pos.x >= W / 2 && !this.actionTouch['a1']) {
+        this.actionTouch['a1'] = id;
+        this.actionJust['a1'] = true;
+      }
+    }
+  };
+  MobileInput.prototype.removeTouch = function(id) {
+    delete this.touchPos[id];
+    delete this.touchStart[id];
+    for (var sid in this.joystickTouch) {
+      if (this.joystickTouch[sid] === id) {
+        delete this.joystickTouch[sid];
+        var s = this.jState[sid];
+        if (s) { s.dx = 0; s.dy = 0; s.wasUp = false; }
+      }
+    }
+    for (var sid2 in this.actionTouch) {
+      if (this.actionTouch[sid2] === id) {
+        delete this.actionTouch[sid2];
+        this.actionJust[sid2] = false;
+      }
+    }
+  };
+  MobileInput.prototype.updateKeys = function() {
+    if (!this.active) return;
+
+    for (var sid in this.joystickTouch) {
+      var tid = this.joystickTouch[sid];
+      var pos = this.touchPos[tid];
+      var start = this.touchStart[tid];
+      var state = this.jState[sid];
+      if (!pos || !start || !state) continue;
+
+      var dx = pos.x - start.x;
+      var dy = pos.y - start.y;
+      var deadzone = 15;
+
+      state.dx = Math.abs(dx) > deadzone ? Math.sign(dx) : 0;
+      state.dy = Math.abs(dy) > deadzone ? Math.sign(dy) : 0;
+    }
+
+    var managed = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyA', 'KeyD', 'KeyW', 'KeyS'];
+    for (var i = 0; i < managed.length; i++) {
+      delete this.inp.held[managed[i]];
+    }
+
+    for (var sid in this.jState) {
+      var state = this.jState[sid];
+      var isP1 = sid === 'j1';
+      var keys = isP1
+        ? { left: 'ArrowLeft', right: 'ArrowRight', up: 'ArrowUp', down: 'ArrowDown', act: 'ArrowDown' }
+        : { left: 'KeyA', right: 'KeyD', up: 'KeyW', down: 'KeyS', act: 'KeyS' };
+
+      if (state.dx < 0) this.inp.held[keys.left] = true;
+      if (state.dx > 0) this.inp.held[keys.right] = true;
+      if (state.dy > 0) this.inp.held[keys.down] = true;
+
+      var upNow = state.dy < 0;
+      if (upNow) {
+        if (!state.wasUp) this.inp.pressed[keys.up] = true;
+        this.inp.held[keys.up] = true;
+      }
+      state.wasUp = upNow;
+    }
+
+    for (var sid in this.actionJust) {
+      var val = this.actionJust[sid];
+      if (val) {
+        var isP1 = sid === 'a1';
+        this.inp.pressed[isP1 ? 'ArrowDown' : 'KeyS'] = true;
+        this.actionJust[sid] = false;
+      }
+    }
+  };
+  MobileInput.prototype.draw = function(ctx) {
+    if (!this.active) return;
+
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    if (this.game.numPlayers >= 2) {
+      this.drawJoystick(ctx, W * 0.17, H * 0.75, 'j2', 'P2');
+      this.drawActionBtn(ctx, W * 0.44, H * 0.75, 'a2');
+      this.drawJoystick(ctx, W * 0.62, H * 0.75, 'j1', 'P1');
+      this.drawActionBtn(ctx, W * 0.92, H * 0.75, 'a1');
+    } else {
+      this.drawJoystick(ctx, W * 0.17, H * 0.75, 'j1', 'P1');
+      this.drawActionBtn(ctx, W * 0.85, H * 0.75, 'a1');
+    }
+
+    ctx.restore();
+  };
+  MobileInput.prototype.drawJoystick = function(ctx, cx, cy, sid, label) {
+    var state = this.jState[sid];
+    var baseR = 55;
+
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(cx, cy, baseR, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+    var kx = cx, ky = cy;
+    if (state && (state.dx !== 0 || state.dy !== 0)) {
+      var maxDist = 30;
+      kx += state.dx * maxDist;
+      ky += state.dy * maxDist;
+    }
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.beginPath(); ctx.arc(kx, ky, 20, 0, Math.PI * 2); ctx.fill();
+
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.font = '11px monospace';
+    ctx.fillText(label, cx, cy - baseR - 12);
+  };
+  MobileInput.prototype.drawActionBtn = function(ctx, cx, cy, sid) {
+    var r = 32;
+    var pressed = this.actionJust[sid];
+
+    ctx.fillStyle = pressed ? 'rgba(255,80,80,0.5)' : 'rgba(255,80,80,0.25)';
+    ctx.strokeStyle = 'rgba(255,80,80,0.5)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.font = 'bold 12px monospace';
+    ctx.fillText('TONG', cx, cy - 5);
+    ctx.font = '10px monospace';
+    ctx.fillText('EI', cx, cy + 10);
+  };
 
   // --- Camera ---------------------------------------------------------------
   function Camera() { this.x = 0; this.y = 0; }
@@ -482,6 +696,8 @@
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.inp = new Input();
+    this.controlMode = 'pc';
+    this.mobile = new MobileInput(canvas, this.inp, this);
     this.screen = 'title';
     this.numPlayers = 1;
     this.players = [];
@@ -491,6 +707,37 @@
     this.clearTimer = 0; this.powerUpSpawnTimer = POWERUP_SPAWN_INTERVAL;
     this.titleTime = 0;
     this._last = 0; this._acc = 0;
+    var self = this;
+    canvas.addEventListener('touchstart', function(e) {
+      if (self.screen === 'title') {
+        e.preventDefault();
+        var rect = canvas.getBoundingClientRect();
+        var tx = (e.touches[0].clientX - rect.left) * (W / rect.width);
+        var ty = (e.touches[0].clientY - rect.top) * (H / rect.height);
+        if (tx > W - 160 && ty > 50 && ty < 100) {
+          self.controlMode = self.controlMode === 'pc' ? 'mobile' : 'pc';
+          self.mobile.active = self.controlMode === 'mobile';
+          return;
+        }
+        if (self.controlMode !== 'mobile') return;
+        self.numPlayers = tx < W / 2 ? 1 : 2;
+        self.level = 1; self.screen = 'playing';
+        self.players = [];
+
+        self.mobile.touchPos = {};
+        self.mobile.touchStart = {};
+        self.mobile.joystickTouch = {};
+        self.mobile.actionTouch = {};
+        self.mobile.jState = {};
+        self.mobile.actionJust = {};
+        self.startLevel();
+      } else if (self.screen === 'gameOver' || self.screen === 'victory') {
+        if (self.controlMode !== 'mobile') return;
+        e.preventDefault();
+        self.screen = 'title';
+        self.players = [];
+      }
+    }, { passive: false });
     canvas.focus();
   }
 
@@ -521,6 +768,10 @@
     this.titleTime += dt;
 
     if (this.screen === 'title') {
+      if (this.inp.just('KeyM')) {
+        this.controlMode = this.controlMode === 'pc' ? 'mobile' : 'pc';
+        this.mobile.active = this.controlMode === 'mobile';
+      }
       if (this.inp.just('Digit1') || this.inp.just('Numpad1') || this.inp.just('Enter')) {
         this.numPlayers = 1; this.level = 1; this.screen = 'playing';
         this.players = []; this.startLevel();
@@ -536,6 +787,7 @@
       if (this.inp.just('Enter') || this.inp.just('Space')) {
         this.screen = 'title'; this.players = [];
       }
+      this.mobile.updateKeys();
       this.inp.endFrame(); return;
     }
 
@@ -546,10 +798,12 @@
         if (this.level > 10) { this.screen = 'victory'; }
         else { this.screen = 'playing'; this.startLevel(); }
       }
+      this.mobile.updateKeys();
       this.inp.endFrame(); return;
     }
 
     // Playing
+    this.mobile.updateKeys();
     for (var i = 0; i < this.plats.length; i++) this.plats[i].update(dt);
     for (var j = 0; j < this.coins.length; j++) this.coins[j].update(dt);
     for (var k = 0; k < this.enemies.length; k++) this.enemies[k].update(dt);
@@ -779,6 +1033,7 @@
     if (this.screen === 'levelClear') this.drawOverlay(ctx, 'Level Clear!', '#4f4');
     if (this.screen === 'gameOver') this.drawOverlay(ctx, 'Game Over', '#f44');
     if (this.screen === 'victory') this.drawVictory(ctx);
+    this.mobile.draw(ctx);
   };
 
   YorsiGame.prototype.drawOverlay = function(ctx, text, color) {
@@ -863,21 +1118,56 @@
     ctx.strokeText('Yoshi-style Platformer', W / 2, 160);
     ctx.fillText('Yoshi-style Platformer', W / 2, 160);
 
-    ctx.font = '20px monospace';
+    // PC/Mobile toggle button (top-right)
+    ctx.save();
+    var modeBtnX = W - 150, modeBtnY = 55, modeBtnW = 140, modeBtnH = 36;
+    var isMobile = this.controlMode === 'mobile';
+    ctx.fillStyle = isMobile ? 'rgba(80,200,80,0.3)' : 'rgba(80,80,200,0.3)';
+    ctx.strokeStyle = isMobile ? '#4c4' : '#44c';
+    ctx.lineWidth = 2;
+    ctx.fillRect(modeBtnX, modeBtnY, modeBtnW, modeBtnH);
+    ctx.strokeRect(modeBtnX, modeBtnY, modeBtnW, modeBtnH);
     ctx.fillStyle = '#fff';
-    if (Math.sin(t * 4) > 0) {
-      ctx.fillText('Press  1  for 1 Player   |   Press  2  for 2 Players', W / 2, 280);
-    }
-
-    ctx.font = '14px monospace';
-    ctx.fillStyle = '#aaa';
-    ctx.fillText('P1: Pijlen + \u2191(spring) + \u2193(tong)', W / 2, 340);
-    ctx.fillText('P2: WASD + W(spring) + S(tong)', W / 2, 362);
-    ctx.fillText('Eet vijanden met je tong! Schiet eieren! 10 levels!', W / 2, 400);
-
-    ctx.font = '13px monospace';
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(isMobile ? 'MOBILE' : 'PC', modeBtnX + modeBtnW / 2, modeBtnY + modeBtnH / 2);
     ctx.fillStyle = '#888';
-    ctx.fillText('Power-ups vallen uit de lucht: \u2191spring \u26a1snelheid \u25c6munten \u2605ster', W / 2, 430);
+    ctx.font = '10px monospace';
+    ctx.fillText('tik om te wisselen', modeBtnX + modeBtnW / 2, modeBtnY + modeBtnH + 14);
+    ctx.restore();
+
+    if (isMobile) {
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 20px monospace';
+      ctx.fillStyle = '#4c4';
+      if (Math.sin(t * 4) > 0) {
+        ctx.fillText('Tik links voor 1 speler  |  Tik rechts voor 2 spelers', W / 2, 280);
+      }
+      ctx.font = '14px monospace';
+      ctx.fillStyle = '#aaa';
+      ctx.fillText('Linkerhelft = joystick  |  Rechterhelft = actieknop (tong/ei)', W / 2, 320);
+      ctx.fillText('P2 links  |  P1 rechts (2-spelermodus)', W / 2, 340);
+      ctx.fillText('Joystick: \u2190 \u2192 lopen, \u2191 springen  |  Knop: tong/ei', W / 2, 370);
+      ctx.restore();
+    } else {
+      ctx.font = '20px monospace';
+      ctx.fillStyle = '#fff';
+      if (Math.sin(t * 4) > 0) {
+        ctx.fillText('Druk  1  voor 1 speler   |   Druk  2  voor 2 spelers', W / 2, 280);
+      }
+
+      ctx.font = '14px monospace';
+      ctx.fillStyle = '#aaa';
+      ctx.fillText('P1: Pijlen + \u2191(spring) + \u2193(tong)', W / 2, 340);
+      ctx.fillText('P2: WASD + W(spring) + S(tong)', W / 2, 362);
+      ctx.fillText('Eet vijanden met je tong! Schiet eieren! 10 levels!', W / 2, 400);
+
+      ctx.font = '13px monospace';
+      ctx.fillStyle = '#888';
+      ctx.fillText('Power-ups vallen uit de lucht: \u2191spring \u26a1snelheid \u25c6munten \u2605ster', W / 2, 430);
+    }
     ctx.restore();
   };
 

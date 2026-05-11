@@ -7,7 +7,7 @@ type Screen = 'title' | 'playing' | 'levelClear' | 'gameOver' | 'victory';
 interface Vec2 { x: number; y: number; }
 interface Rect { x: number; y: number; w: number; h: number; }
 
-const W = 960, H = 540, VERSION = 'v1.2';
+const W = 960, H = 540, VERSION = 'v1.3';
 const GRAVITY = 850, JUMP_V = -370, FLUTTER_V = -80, MAX_FLUTTER = 0.45;
 const MOVE_SPD = 170, TONGUE_RNG = 55, TONGUE_TIME = 0.25;
 const EGG_SPD = 320, ENEMY_SPD = 45, PLAYER_H = 28, PLAYER_R = 13;
@@ -38,6 +38,246 @@ class Input {
   down(c: string) { return this.held.has(c); }
   just(c: string)  { return this.pressed.has(c); }
   endFrame()       { this.pressed.clear(); }
+}
+
+// ─── Mobile Input (touch controls) ───────────────────────────────────────────
+class MobileInput {
+  canvas: HTMLCanvasElement;
+  inp: Input;
+  game: YorsiGame;
+  active = false;
+
+  // Touch tracking
+  touchPos = new Map<number, Vec2>();
+  touchStart = new Map<number, Vec2>();
+  joystickTouch = new Map<string, number>(); // 'j1'|'j2' -> touch identifier
+  actionTouch = new Map<string, number>();   // 'a1'|'a2' -> touch identifier
+
+  // Joystick state per zone
+  jState = new Map<string, { dx: number; dy: number; wasUp: boolean }>();
+
+  // Action button just-pressed per zone
+  actionJust = new Map<string, boolean>();
+
+  constructor(canvas: HTMLCanvasElement, inp: Input, game: YorsiGame) {
+    this.canvas = canvas;
+    this.inp = inp;
+    this.game = game;
+    this.setup();
+  }
+
+  private canvasPos(t: Touch): Vec2 {
+    const rect = this.canvas.getBoundingClientRect();
+    return {
+      x: (t.clientX - rect.left) * (W / rect.width),
+      y: (t.clientY - rect.top) * (H / rect.height),
+    };
+  }
+
+  private setup() {
+    const c = this.canvas;
+    c.addEventListener('touchstart', (e: TouchEvent) => {
+      if (!this.active) return;
+      e.preventDefault();
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
+        const pos = this.canvasPos(t);
+        this.touchPos.set(t.identifier, pos);
+        this.touchStart.set(t.identifier, { ...pos });
+        this.assignTouch(t.identifier, pos);
+      }
+    });
+    c.addEventListener('touchmove', (e: TouchEvent) => {
+      if (!this.active) return;
+      e.preventDefault();
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
+        this.touchPos.set(t.identifier, this.canvasPos(t));
+      }
+    });
+    c.addEventListener('touchend', (e: TouchEvent) => {
+      if (!this.active) return;
+      e.preventDefault();
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
+        this.removeTouch(t.identifier);
+      }
+    });
+    c.addEventListener('touchcancel', (e: TouchEvent) => {
+      if (!this.active) return;
+      e.preventDefault();
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        this.removeTouch(e.changedTouches[i].identifier);
+      }
+    });
+  }
+
+  private assignTouch(id: number, pos: Vec2) {
+    const np = this.game.numPlayers;
+    if (np >= 2) {
+      // Left half = P2, right half = P1
+      if (pos.x < W / 2) {
+        // P2: left part = joystick, right part = action
+        if (pos.x < W * 0.38 && !this.joystickTouch.has('j2')) {
+          this.joystickTouch.set('j2', id);
+          if (!this.jState.has('j2')) this.jState.set('j2', { dx: 0, dy: 0, wasUp: false });
+        } else if (pos.x >= W * 0.38 && !this.actionTouch.has('a2')) {
+          this.actionTouch.set('a2', id);
+          this.actionJust.set('a2', true);
+        }
+      } else {
+        // P1: left part = joystick, right part = action
+        if (pos.x < W * 0.88 && !this.joystickTouch.has('j1')) {
+          this.joystickTouch.set('j1', id);
+          if (!this.jState.has('j1')) this.jState.set('j1', { dx: 0, dy: 0, wasUp: false });
+        } else if (pos.x >= W * 0.88 && !this.actionTouch.has('a1')) {
+          this.actionTouch.set('a1', id);
+          this.actionJust.set('a1', true);
+        }
+      }
+    } else {
+      // 1-player: left half = joystick, right half = action
+      if (pos.x < W / 2 && !this.joystickTouch.has('j1')) {
+        this.joystickTouch.set('j1', id);
+        if (!this.jState.has('j1')) this.jState.set('j1', { dx: 0, dy: 0, wasUp: false });
+      } else if (pos.x >= W / 2 && !this.actionTouch.has('a1')) {
+        this.actionTouch.set('a1', id);
+        this.actionJust.set('a1', true);
+      }
+    }
+  }
+
+  private removeTouch(id: number) {
+    this.touchPos.delete(id);
+    this.touchStart.delete(id);
+    for (const [sid, tid] of this.joystickTouch) {
+      if (tid === id) {
+        this.joystickTouch.delete(sid);
+        const s = this.jState.get(sid);
+        if (s) { s.dx = 0; s.dy = 0; s.wasUp = false; }
+      }
+    }
+    for (const [sid, tid] of this.actionTouch) {
+      if (tid === id) {
+        this.actionTouch.delete(sid);
+        this.actionJust.set(sid, false);
+      }
+    }
+  }
+
+  updateKeys() {
+    if (!this.active) return;
+
+    // Update joystick directions
+    for (const [sid, tid] of this.joystickTouch) {
+      const pos = this.touchPos.get(tid);
+      const start = this.touchStart.get(tid);
+      const state = this.jState.get(sid);
+      if (!pos || !start || !state) continue;
+
+      const dx = pos.x - start.x;
+      const dy = pos.y - start.y;
+      const deadzone = 15;
+
+      state.dx = Math.abs(dx) > deadzone ? Math.sign(dx) : 0;
+      state.dy = Math.abs(dy) > deadzone ? Math.sign(dy) : 0;
+    }
+
+    // Clear mobile-managed keys from held (keyboard keys stay intact)
+    const managed = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyA', 'KeyD', 'KeyW', 'KeyS'];
+    for (const k of managed) this.inp.held.delete(k);
+
+    // Apply joystick states to virtual keys
+    for (const [sid, state] of this.jState) {
+      const isP1 = sid === 'j1';
+      const keys = isP1
+        ? { left: 'ArrowLeft', right: 'ArrowRight', up: 'ArrowUp', down: 'ArrowDown', act: 'ArrowDown' }
+        : { left: 'KeyA', right: 'KeyD', up: 'KeyW', down: 'KeyS', act: 'KeyS' };
+
+      if (state.dx < 0) this.inp.held.add(keys.left);
+      if (state.dx > 0) this.inp.held.add(keys.right);
+      if (state.dy > 0) this.inp.held.add(keys.down); // ghost down
+
+      // Jump: held for flutter, just-pressed on transition
+      const upNow = state.dy < 0;
+      if (upNow) {
+        if (!state.wasUp) this.inp.pressed.add(keys.up);
+        this.inp.held.add(keys.up);
+      }
+      state.wasUp = upNow;
+    }
+
+    // Apply action button just-pressed
+    for (const [sid, val] of this.actionJust) {
+      if (val) {
+        const isP1 = sid === 'a1';
+        this.inp.pressed.add(isP1 ? 'ArrowDown' : 'KeyS');
+        this.actionJust.set(sid, false);
+      }
+    }
+  }
+
+  draw(ctx: CanvasRenderingContext2D) {
+    if (!this.active) return;
+
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    if (this.game.numPlayers >= 2) {
+      // P2 (left half)
+      this.drawJoystick(ctx, W * 0.17, H * 0.75, 'j2', 'P2');
+      this.drawActionBtn(ctx, W * 0.44, H * 0.75, 'a2');
+      // P1 (right half)
+      this.drawJoystick(ctx, W * 0.62, H * 0.75, 'j1', 'P1');
+      this.drawActionBtn(ctx, W * 0.92, H * 0.75, 'a1');
+    } else {
+      this.drawJoystick(ctx, W * 0.17, H * 0.75, 'j1', 'P1');
+      this.drawActionBtn(ctx, W * 0.85, H * 0.75, 'a1');
+    }
+
+    ctx.restore();
+  }
+
+  private drawJoystick(ctx: CanvasRenderingContext2D, cx: number, cy: number, sid: string, label: string) {
+    const state = this.jState.get(sid);
+    const baseR = 55;
+
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(cx, cy, baseR, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+    // Direction indicator
+    let kx = cx, ky = cy;
+    if (state && (state.dx !== 0 || state.dy !== 0)) {
+      const maxDist = 30;
+      kx += state.dx * maxDist;
+      ky += state.dy * maxDist;
+    }
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.beginPath(); ctx.arc(kx, ky, 20, 0, Math.PI * 2); ctx.fill();
+
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.font = '11px monospace';
+    ctx.fillText(label, cx, cy - baseR - 12);
+  }
+
+  private drawActionBtn(ctx: CanvasRenderingContext2D, cx: number, cy: number, sid: string) {
+    const r = 32;
+    const pressed = this.actionJust.get(sid);
+
+    ctx.fillStyle = pressed ? 'rgba(255,80,80,0.5)' : 'rgba(255,80,80,0.25)';
+    ctx.strokeStyle = 'rgba(255,80,80,0.5)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.font = 'bold 12px monospace';
+    ctx.fillText('TONG', cx, cy - 5);
+    ctx.font = '10px monospace';
+    ctx.fillText('EI', cx, cy + 10);
+  }
 }
 
 // ─── Camera ──────────────────────────────────────────────────────────────────
@@ -503,6 +743,8 @@ function drawHUD(ctx: CanvasRenderingContext2D, players: Player[], level: number
 class YorsiGame {
   canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D;
   inp = new Input();
+  mobile: MobileInput;
+  controlMode: 'pc' | 'mobile' = 'pc';
   screen: Screen = 'title'; numPlayers = 1;
 
   players: Player[] = [];
@@ -520,6 +762,39 @@ class YorsiGame {
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('No 2D context');
     this.ctx = ctx;
+    this.mobile = new MobileInput(canvas, this.inp, this);
+    canvas.addEventListener('touchstart', (e: TouchEvent) => {
+      if (this.screen === 'title') {
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const tx = (e.touches[0].clientX - rect.left) * (W / rect.width);
+        const ty = (e.touches[0].clientY - rect.top) * (H / rect.height);
+        // Toggle mode button (top-right area) — always works
+        if (tx > W - 160 && ty > 50 && ty < 100) {
+          this.controlMode = this.controlMode === 'pc' ? 'mobile' : 'pc';
+          this.mobile.active = this.controlMode === 'mobile';
+          return;
+        }
+        // In PC mode, only the toggle button works via touch
+        if (this.controlMode !== 'mobile') return;
+        // Start game: left half = 1P, right half = 2P
+        this.level = 1; this.screen = 'playing';
+        this.players = [];
+        // Clear any ghost touches that MobileInput may have already assigned
+        this.mobile.touchPos.clear();
+        this.mobile.touchStart.clear();
+        this.mobile.joystickTouch.clear();
+        this.mobile.actionTouch.clear();
+        this.mobile.jState.clear();
+        this.mobile.actionJust.clear();
+        this.startLevel();
+      } else if (this.screen === 'gameOver' || this.screen === 'victory') {
+        if (this.controlMode !== 'mobile') return;
+        e.preventDefault();
+        this.screen = 'title';
+        this.players = [];
+      }
+    }, { passive: false });
     canvas.focus();
     this.powerUpSpawnTimer = POWERUP_SPAWN_INTERVAL;
   }
@@ -549,6 +824,10 @@ class YorsiGame {
   update(dt: number) {
     this.titleTime += dt;
     if (this.screen === 'title') {
+      if (this.inp.just('KeyM')) {
+        this.controlMode = this.controlMode === 'pc' ? 'mobile' : 'pc';
+        this.mobile.active = this.controlMode === 'mobile';
+      }
       if (this.inp.just('Digit1') || this.inp.just('Numpad1') || this.inp.just('Enter')) {
         this.numPlayers = 1; this.level = 1; this.screen = 'playing';
         this.players = [];
@@ -567,6 +846,7 @@ class YorsiGame {
         this.screen = 'title';
         this.players = [];
       }
+      this.mobile.updateKeys();
       this.inp.endFrame();
       return;
     }
@@ -578,11 +858,13 @@ class YorsiGame {
         if (this.level > 10) { this.screen = 'victory'; }
         else { this.screen = 'playing'; this.startLevel(); }
       }
+      this.mobile.updateKeys();
       this.inp.endFrame();
       return;
     }
 
     // Playing
+    this.mobile.updateKeys();
     for (const p of this.plats) p.update(dt);
     for (const c of this.coins) c.update(dt);
     for (const e of this.enemies) e.update(dt);
@@ -834,6 +1116,7 @@ class YorsiGame {
     if (this.screen === 'levelClear') this.drawOverlay(ctx, 'Level Clear!', '#4f4');
     if (this.screen === 'gameOver') this.drawOverlay(ctx, 'Game Over', '#f44');
     if (this.screen === 'victory') this.drawVictory(ctx);
+    this.mobile.draw(ctx);
   }
 
   drawOverlay(ctx: CanvasRenderingContext2D, text: string, color: string) {
@@ -927,25 +1210,61 @@ class YorsiGame {
     ctx.strokeText('Yoshi-style Platformer', W / 2, 160);
     ctx.fillText('Yoshi-style Platformer', W / 2, 160);
 
-    // Menu
-    ctx.font = '20px monospace';
+    // PC/Mobile toggle button (top-right)
+    ctx.save();
+    const modeBtnX = W - 150, modeBtnY = 55, modeBtnW = 140, modeBtnH = 36;
+    const isMobile = this.controlMode === 'mobile';
+    ctx.fillStyle = isMobile ? 'rgba(80,200,80,0.3)' : 'rgba(80,80,200,0.3)';
+    ctx.strokeStyle = isMobile ? '#4c4' : '#44c';
+    ctx.lineWidth = 2;
+    ctx.fillRect(modeBtnX, modeBtnY, modeBtnW, modeBtnH);
+    ctx.strokeRect(modeBtnX, modeBtnY, modeBtnW, modeBtnH);
     ctx.fillStyle = '#fff';
-    const blink = Math.sin(t * 4) > 0;
-    if (blink) {
-      ctx.fillText('Press  1  for 1 Player   |   Press  2  for 2 Players', W / 2, 280);
-    }
-
-    // Controls
-    ctx.font = '14px monospace';
-    ctx.fillStyle = '#aaa';
-    ctx.fillText('P1: Pijlen + ↑(spring) + ↓(tong)', W / 2, 340);
-    ctx.fillText('P2: WASD + W(spring) + S(tong)', W / 2, 362);
-    ctx.fillText('Eet vijanden met je tong! Schiet eieren! 10 levels!', W / 2, 400);
-
-    // Power-up info
-    ctx.font = '13px monospace';
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(isMobile ? 'MOBILE' : 'PC', modeBtnX + modeBtnW / 2, modeBtnY + modeBtnH / 2);
     ctx.fillStyle = '#888';
-    ctx.fillText('Power-ups vallen uit de lucht: ↑spring ⚡snelheid ◆munten ★ster', W / 2, 430);
+    ctx.font = '10px monospace';
+    ctx.fillText('tik om te wisselen', modeBtnX + modeBtnW / 2, modeBtnY + modeBtnH + 14);
+    ctx.restore();
+
+    // Menu
+    if (isMobile) {
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 20px monospace';
+      ctx.fillStyle = '#4c4';
+      const blink = Math.sin(t * 4) > 0;
+      if (blink) {
+        ctx.fillText('Tik links voor 1 speler  |  Tik rechts voor 2 spelers', W / 2, 280);
+      }
+      ctx.font = '14px monospace';
+      ctx.fillStyle = '#aaa';
+      ctx.fillText('Linkerhelft = joystick  |  Rechterhelft = actieknop (tong/ei)', W / 2, 320);
+      ctx.fillText('P2 links  |  P1 rechts (2-spelermodus)', W / 2, 340);
+      ctx.fillText('Joystick: ← → lopen, ↑ springen  |  Knop: tong/ei', W / 2, 370);
+      ctx.restore();
+    } else {
+      ctx.font = '20px monospace';
+      ctx.fillStyle = '#fff';
+      const blink = Math.sin(t * 4) > 0;
+      if (blink) {
+        ctx.fillText('Druk  1  voor 1 speler   |   Druk  2  voor 2 spelers', W / 2, 280);
+      }
+
+      // Controls
+      ctx.font = '14px monospace';
+      ctx.fillStyle = '#aaa';
+      ctx.fillText('P1: Pijlen + ↑(spring) + ↓(tong)', W / 2, 340);
+      ctx.fillText('P2: WASD + W(spring) + S(tong)', W / 2, 362);
+      ctx.fillText('Eet vijanden met je tong! Schiet eieren! 10 levels!', W / 2, 400);
+
+      // Power-up info
+      ctx.font = '13px monospace';
+      ctx.fillStyle = '#888';
+      ctx.fillText('Power-ups vallen uit de lucht: ↑spring ⚡snelheid ◆munten ★ster', W / 2, 430);
+    }
     ctx.restore();
   }
 
