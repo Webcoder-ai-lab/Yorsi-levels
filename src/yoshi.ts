@@ -1199,8 +1199,8 @@ class YoshiGame {
     ctx.fillStyle = '#4bc84b';
     ctx.strokeStyle = '#2a6a2a';
     ctx.lineWidth = 6;
-    ctx.strokeText('YORSI', W / 2, 120);
-    ctx.fillText('YORSI', W / 2, 120);
+    ctx.strokeText('YOSHI', W / 2, 120);
+    ctx.fillText('YOSHI', W / 2, 120);
 
     // Subtitle
     ctx.font = 'bold 22px monospace';
