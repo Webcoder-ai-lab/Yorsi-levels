@@ -708,12 +708,12 @@
     this.titleTime = 0;
     this._last = 0; this._acc = 0;
     var self = this;
-    canvas.addEventListener('touchstart', function(e) {
+    function canvasClick(tx, ty) {
       if (self.screen === 'title') {
-        e.preventDefault();
-        var rect = canvas.getBoundingClientRect();
-        var tx = (e.touches[0].clientX - rect.left) * (W / rect.width);
-        var ty = (e.touches[0].clientY - rect.top) * (H / rect.height);
+        if (ty > H - 35 && ty < H - 5 && Math.abs(tx - W / 2) < 100) {
+          window.location.href = 'ideeen.html';
+          return;
+        }
         if (tx > W - 160 && ty > 50 && ty < 100) {
           self.controlMode = self.controlMode === 'pc' ? 'mobile' : 'pc';
           self.mobile.active = self.controlMode === 'mobile';
@@ -723,7 +723,6 @@
         self.numPlayers = tx < W / 2 ? 1 : 2;
         self.level = 1; self.screen = 'playing';
         self.players = [];
-
         self.mobile.touchPos = {};
         self.mobile.touchStart = {};
         self.mobile.joystickTouch = {};
@@ -733,11 +732,22 @@
         self.startLevel();
       } else if (self.screen === 'gameOver' || self.screen === 'victory') {
         if (self.controlMode !== 'mobile') return;
-        e.preventDefault();
         self.screen = 'title';
         self.players = [];
       }
-    }, { passive: false });
+    }
+    canvas.addEventListener('touchstart', function(e) {
+      var rect = canvas.getBoundingClientRect();
+      var tx = (e.touches[0].clientX - rect.left) * (W / rect.width);
+      var ty = (e.touches[0].clientY - rect.top) * (H / rect.height);
+      canvasClick(tx, ty);
+    }, { passive: true });
+    canvas.addEventListener('click', function(e) {
+      var rect = canvas.getBoundingClientRect();
+      var tx = (e.clientX - rect.left) * (W / rect.width);
+      var ty = (e.clientY - rect.top) * (H / rect.height);
+      canvasClick(tx, ty);
+    });
     canvas.focus();
   }
 
@@ -1168,6 +1178,11 @@
       ctx.fillStyle = '#888';
       ctx.fillText('Power-ups vallen uit de lucht: \u2191spring \u26a1snelheid \u25c6munten \u2605ster', W / 2, 430);
     }
+    var blink2 = Math.sin(t * 3) > 0;
+    ctx.textAlign = 'center';
+    ctx.font = '15px monospace';
+    ctx.fillStyle = blink2 ? '#4bc84b' : '#2a8a2a';
+    ctx.fillText('\uD83D\uDCA1 Idee? Klik hier', W / 2, H - 16);
     ctx.restore();
   };
 

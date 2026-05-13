@@ -763,24 +763,20 @@ class YoshiGame {
     if (!ctx) throw new Error('No 2D context');
     this.ctx = ctx;
     this.mobile = new MobileInput(canvas, this.inp, this);
-    canvas.addEventListener('touchstart', (e: TouchEvent) => {
+    const canvasClick = (tx: number, ty: number) => {
       if (this.screen === 'title') {
-        e.preventDefault();
-        const rect = canvas.getBoundingClientRect();
-        const tx = (e.touches[0].clientX - rect.left) * (W / rect.width);
-        const ty = (e.touches[0].clientY - rect.top) * (H / rect.height);
-        // Toggle mode button (top-right area) — always works
+        if (ty > H - 35 && ty < H - 5 && Math.abs(tx - W / 2) < 100) {
+          window.location.href = 'ideeen.html';
+          return;
+        }
         if (tx > W - 160 && ty > 50 && ty < 100) {
           this.controlMode = this.controlMode === 'pc' ? 'mobile' : 'pc';
           this.mobile.active = this.controlMode === 'mobile';
           return;
         }
-        // In PC mode, only the toggle button works via touch
         if (this.controlMode !== 'mobile') return;
-        // Start game: left half = 1P, right half = 2P
         this.level = 1; this.screen = 'playing';
         this.players = [];
-        // Clear any ghost touches that MobileInput may have already assigned
         this.mobile.touchPos.clear();
         this.mobile.touchStart.clear();
         this.mobile.joystickTouch.clear();
@@ -790,11 +786,22 @@ class YoshiGame {
         this.startLevel();
       } else if (this.screen === 'gameOver' || this.screen === 'victory') {
         if (this.controlMode !== 'mobile') return;
-        e.preventDefault();
         this.screen = 'title';
         this.players = [];
       }
-    }, { passive: false });
+    };
+    canvas.addEventListener('touchstart', (e: TouchEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      const tx = (e.touches[0].clientX - rect.left) * (W / rect.width);
+      const ty = (e.touches[0].clientY - rect.top) * (H / rect.height);
+      canvasClick(tx, ty);
+    }, { passive: true });
+    canvas.addEventListener('click', (e: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      const tx = (e.clientX - rect.left) * (W / rect.width);
+      const ty = (e.clientY - rect.top) * (H / rect.height);
+      canvasClick(tx, ty);
+    });
     canvas.focus();
     this.powerUpSpawnTimer = POWERUP_SPAWN_INTERVAL;
   }
@@ -1265,6 +1272,13 @@ class YoshiGame {
       ctx.fillStyle = '#888';
       ctx.fillText('Power-ups vallen uit de lucht: ↑spring ⚡snelheid ◆munten ★ster', W / 2, 430);
     }
+
+    // Ideeën knop (altijd zichtbaar)
+    const blink2 = Math.sin(t * 3) > 0;
+    ctx.textAlign = 'center';
+    ctx.font = '15px monospace';
+    ctx.fillStyle = blink2 ? '#4bc84b' : '#2a8a2a';
+    ctx.fillText('💡 Idee? Klik hier', W / 2, H - 16);
     ctx.restore();
   }
 
