@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Beheer — Ideeën</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a1a;
+      color: #eee;
+      font-family: system-ui, -apple-system, sans-serif;
+      padding: 30px;
+    }
+    h1 {
+      font-size: 24px;
+      color: #4bc84b;
+      margin-bottom: 4px;
+    }
+    .sub {
+      color: #888;
+      font-size: 13px;
+      margin-bottom: 24px;
+    }
+    .stats {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .stat {
+      background: #16162a;
+      border: 1px solid #334;
+      border-radius: 8px;
+      padding: 16px 24px;
+    }
+    .stat-num {
+      font-size: 28px;
+      font-weight: bold;
+      color: #4bc84b;
+    }
+    .stat-label {
+      font-size: 12px;
+      color: #888;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #16162a;
+      border: 1px solid #334;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    th {
+      background: #0e0e1e;
+      color: #aaa;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 12px 16px;
+      text-align: left;
+    }
+    td {
+      padding: 12px 16px;
+      border-top: 1px solid #222;
+      font-size: 14px;
+    }
+    td.idee { color: #fff; max-width: 400px; white-space: pre-wrap; }
+    td.leeg { color: #555; font-style: italic; }
+    .status {
+      display: inline-block;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+    .status-nieuw { background: #2a5a2a; color: #4bc84b; }
+    .ref {
+      margin-top: 24px;
+      padding: 16px;
+      background: #16162a;
+      border: 1px solid #334;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #888;
+    }
+    .ref code {
+      background: #0e0e1e;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 12px;
+      color: #4bc84b;
+    }
+    .error {
+      color: #f44;
+      background: #2a1a1a;
+      border: 1px solid #533;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .loading { color: #888; font-size: 14px; }
+    #content { display: none; }
+  </style>
+</head>
+<body>
+  <h1>📋 Ingestuurde Ideeën</h1>
+  <div class="sub">Alleen zichtbaar voor jou — lokaal geopend</div>
+
+  <div id="error" class="error" style="display:none"></div>
+  <div id="loading" class="loading">Ideeën laden...</div>
+
+  <div id="content">
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-num" id="count">0</div>
+        <div class="stat-label">totaal ideeën</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num" id="countToday">0</div>
+        <div class="stat-label">vandaag</div>
+      </div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Datum</th>
+          <th>Idee</th>
+          <th>Naam</th>
+          <th>Email</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+
+    <div class="ref">
+      ⚡ <strong>Zo werkt het:</strong> De data wordt opgehaald uit een gepubliceerde Google Sheet.
+      Alleen jij hebt de link, dus alleen jij kan de ideeën zien.
+      <br><br>
+      <strong>Instellen:</strong>
+      <ol style="margin-left:18px;margin-top:6px">
+        <li>Open het Google Formulier → ga naar <strong>Antwoorden</strong> → klik op het Sheets-icoon</li>
+        <li>Klik in Google Sheets op <strong>Bestand → Delen → Publiceren op internet</strong></li>
+        <li>Kies '<strong>Doorlinken</strong>', selecteer de sheet, kies '<strong>CSV (.csv)</strong>'</li>
+        <li>Klik op <strong>Publiceren</strong> en kopieer de link</li>
+        <li>Plak die link hieronder tussen de aanhalingstekens</li>
+      </ol>
+    </div>
+  </div>
+
+  <script>
+    // ════════════════════════════════════════════════════════════
+    // VUL HIER DE GEPUBLICEERDE CSV-LINK VAN JE GOOGLE SHEET IN
+    // ════════════════════════════════════════════════════════════
+    //
+    // De link ziet eruit als:
+    //   https://docs.google.com/spreadsheets/d/e/{SHEET_ID}/pub?output=csv
+    //
+    // VUL DE VOLLEDIGE LINK IN TUSSEN DE AANHALINGSTEKENS:
+
+    const CSV_URL = '';
+
+    // ════════════════════════════════════════════════════════════
+
+    async function loadIdeeen() {
+      const errorDiv = document.getElementById('error');
+      const loading = document.getElementById('loading');
+      const content = document.getElementById('content');
+
+      if (!CSV_URL) {
+        errorDiv.style.display = 'block';
+        errorDiv.innerHTML = 'Er is nog geen Google Sheet gekoppeld. <a style="color:#4bc84b" href="#">Open dit bestand</a> en vul CSV_URL in.';
+        loading.style.display = 'none';
+        return;
+      }
+
+      try {
+        const resp = await fetch(CSV_URL);
+        if (!resp.ok) throw new Error('Kon sheet niet laden (status ' + resp.status + ')');
+        const csv = await resp.text();
+        const rows = parseCSV(csv);
+
+        // Skip header row
+        const data = rows.slice(1);
+
+        document.getElementById('count').textContent = data.length;
+
+        const vandaag = new Date().toLocaleDateString('nl-NL');
+        const vandaagCount = data.filter(r => {
+          const d = new Date(r[0]);
+          return !isNaN(d.getTime()) && d.toLocaleDateString('nl-NL') === vandaag;
+        }).length;
+        document.getElementById('countToday').textContent = vandaagCount;
+
+        const tbody = document.getElementById('rows');
+        tbody.innerHTML = '';
+
+        for (const row of data) {
+          const tr = document.createElement('tr');
+          const tijd = row[0] || '';
+          const idee = row[1] || '';
+          const naam = row[2] || '';
+          const email = row[3] || '';
+
+          tr.innerHTML = `
+            <td style="white-space:nowrap;font-size:13px;color:#888">${escapeHtml(tijd)}</td>
+            <td class="idee">${escapeHtml(idee)}</td>
+            <td class="${naam ? '' : 'leeg'}">${naam || '— anoniem —'}</td>
+            <td class="${email ? '' : 'leeg'}">${email || '—'}</td>
+            <td><span class="status status-nieuw">Nieuw</span></td>
+          `;
+          tbody.appendChild(tr);
+        }
+
+        if (data.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#555;padding:30px">Nog geen ideeën ontvangen</td></tr>';
+        }
+
+        loading.style.display = 'none';
+        content.style.display = 'block';
+
+      } catch (err) {
+        errorDiv.style.display = 'block';
+        errorDiv.textContent = 'Fout bij laden: ' + err.message;
+        loading.textContent = 'Probeer opnieuw...';
+      }
+    }
+
+    function parseCSV(text) {
+      const rows = [];
+      let current = [];
+      let field = '';
+      let inQuotes = false;
+
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        const next = text[i + 1];
+
+        if (inQuotes) {
+          if (ch === '"' && next === '"') { field += '"'; i++; }
+          else if (ch === '"') { inQuotes = false; }
+          else { field += ch; }
+        } else {
+          if (ch === '"') { inQuotes = true; }
+          else if (ch === ',') { current.push(field.trim()); field = ''; }
+          else if (ch === '\n') { current.push(field.trim()); rows.push(current); current = []; field = ''; }
+          else if (ch === '\r') { /* skip */ }
+          else { field += ch; }
+        }
+      }
+      if (field || current.length) { current.push(field.trim()); rows.push(current); }
+      return rows;
+    }
+
+    function escapeHtml(s) {
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    loadIdeeen();
+  </script>
+</body>
+</html>
